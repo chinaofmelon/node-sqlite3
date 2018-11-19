@@ -1,8 +1,9 @@
 {
   "includes": [ "deps/common-sqlite.gypi" ],
   "variables": {
-      "sqlite%":"internal",
-      "sqlite_libname%":"sqlite3"
+      "sqlite%":"sqlcipher_lib",
+      "sqlite_libname%":"sqlcipher",
+      "openssl_libname%":"crypto"
   },
   "targets": [
     {
@@ -10,17 +11,24 @@
       "include_dirs": ["<!(node -e \"require('nan')\")"],
       "conditions": [
         ["sqlite != 'internal'", {
-            "include_dirs": [ "<(sqlite)/include" ],
+            "include_dirs": [ "<(module_root_dir)/<(sqlite)/include", "<(module_root_dir)/<(sqlite)/include/sqlcipher", "<(module_root_dir)/<(sqlite)/include/openssl" ],
             "libraries": [
-               "-l<(sqlite_libname)"
+               "-l<(sqlite_libname)",
+	       "-l<(openssl_libname)"
             ],
-            "conditions": [ [ "OS=='linux'", {"libraries+":["-Wl,-rpath=<@(sqlite)/lib"]} ] ],
-            "conditions": [ [ "OS!='win'", {"libraries+":["-L<@(sqlite)/lib"]} ] ],
+            "conditions": [ [ "OS=='linux'", {"libraries+":["-Wl,-rpath=<(module_root_dir)/<@(sqlite)/lib"]} ] ],
+            "conditions": [ [ "OS!='win'", {"libraries+":["-l<(openssl_libname)", "-L<(module_root_dir)/<@(sqlite)/lib"]} ] ],
+	    "conditions": [ [ "OS=='win'", {"libraries+":[ "-lmsvcrt", "crypt32.lib", "ws2_32.lib" ] } ] ],
             'msvs_settings': {
               'VCLinkerTool': {
                 'AdditionalLibraryDirectories': [
-                  '<(sqlite)/lib'
+                  '<(module_root_dir)/<(sqlite)/lib'
                 ],
+		'IgnoreDefaultLibraryNames': [
+                  '<(openssl_libname).lib',
+                  'crypt32.lib',
+                  'ws2_32.lib'
+		],
               },
             }
         },

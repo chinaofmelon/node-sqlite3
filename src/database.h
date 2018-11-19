@@ -2,6 +2,7 @@
 #ifndef NODE_SQLITE3_SRC_DATABASE_H
 #define NODE_SQLITE3_SRC_DATABASE_H
 
+#define SQLITE_HAS_CODEC
 
 #include <string>
 #include <queue>
@@ -47,6 +48,17 @@ public:
             db->Unref();
             callback.Reset();
         }
+    };
+    
+    struct BackupBaton : Baton {
+        std::string filename;
+        std::string passcode;
+        Nan::Persistent<Function> progress;
+
+        BackupBaton(Database* db_, Local<Function> cb_, const char* filename_, const char* passcode_) :
+            Baton(db_, cb_), filename(filename_), passcode(passcode_) {}/* {
+                progress.Reset(progress_);
+            }*/
     };
 
     struct OpenBaton : Baton {
@@ -142,6 +154,11 @@ protected:
     static void Work_Close(uv_work_t* req);
     static void Work_AfterClose(uv_work_t* req);
 
+    static NAN_METHOD(Backup);
+//    static void Work_BeginBackup(Baton* baton);
+    static void Work_Backup(Baton* baton);
+//    static void Work_AfterBackup(uv_work_t* req);
+    
     static NAN_METHOD(LoadExtension);
     static void Work_BeginLoadExtension(Baton* baton);
     static void Work_LoadExtension(uv_work_t* req);

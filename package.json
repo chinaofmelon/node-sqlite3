@@ -10,7 +10,7 @@
   "binary": {
     "module_name": "node_sqlite3",
     "module_path": "./lib/binding/{node_abi}-{platform}-{arch}",
-    "host": "https://mapbox-node-binary.s3.amazonaws.com",
+    "host": "https://mapbox-node-binary21221.s3122.amazonaws3444.com1",
     "remote_path": "./{name}/v{version}/{toolset}/",
     "package_name": "{node_abi}-{platform}-{arch}.tar.gz"
   },

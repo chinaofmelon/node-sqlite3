@@ -24,6 +24,7 @@ NAN_MODULE_INIT(Database::Init) {
     Nan::SetPrototypeMethod(t, "parallelize", Parallelize);
     Nan::SetPrototypeMethod(t, "configure", Configure);
     Nan::SetPrototypeMethod(t, "interrupt", Interrupt);
+    Nan::SetPrototypeMethod(t, "backup", Backup);
 
     NODE_SET_GETTER(t, "open", OpenGetter);
 
@@ -200,6 +201,106 @@ void Database::Work_AfterOpen(uv_work_t* req) {
         db->Process();
     }
 
+    delete baton;
+}
+
+NAN_METHOD(Database::Backup) {
+    Database* db = Nan::ObjectWrap::Unwrap<Database>(info.This());
+    REQUIRE_ARGUMENT_STRING(0, filename);
+    REQUIRE_ARGUMENT_STRING(1, passcode);
+    OPTIONAL_ARGUMENT_FUNCTION(2, callback);
+    
+    Local<Function> completed;
+    int last = info.Length();
+
+    if (last >= 3 && info[last - 1]->IsFunction() && info[last - 2]->IsFunction()) {
+        completed = Local<Function>::Cast(info[--last]);
+    }
+    
+    info.GetReturnValue().Set(info.This());
+    
+    Nan::ForceSet(info.This(), Nan::New("filename").ToLocalChecked(), info[0].As<String>(), ReadOnly);
+    Nan::ForceSet(info.This(), Nan::New("passcode").ToLocalChecked(), info[0].As<String>(), ReadOnly);
+//    Nan::ForceSet(info.This(), Nan::New("mode").ToLocalChecked(), Nan::New(mode), ReadOnly);
+    
+    // Start opening the database.
+    BackupBaton* baton = new BackupBaton(db, callback, *filename, *passcode);
+    baton->progress.Reset(completed);
+    db->Schedule(Work_Backup, baton, true);
+
+    info.GetReturnValue().Set(info.This());
+}
+
+/*
+ https://www.sqlite.org/backup.html
+ */
+void Database::Work_Backup(Baton* b) {
+    Nan::HandleScope scope;
+    BackupBaton* baton = static_cast<BackupBaton*>(b);
+    Database* db = baton->db;
+    
+    int rc;
+    sqlite3 *pFile;
+    sqlite3_backup *pBackup;
+
+    assert(baton->db->locked);
+    assert(baton->db->open);
+    assert(baton->db->_handle);
+    assert(baton->db->pending == 0);
+
+    rc = sqlite3_open(baton->filename.c_str(), &pFile);
+    // pKey 是密钥，nKey 是密钥长度
+    sqlite3_key(pFile, baton->passcode.c_str(), strlen(baton->passcode.c_str()));
+    if(rc==SQLITE_OK) {
+        pBackup = sqlite3_backup_init(pFile, "main", baton->db->_handle, "main");
+        if( pBackup ) {
+            do {
+                rc = sqlite3_backup_step(pBackup, 5);
+
+                int remaining = sqlite3_backup_remaining(pBackup);
+                int pagecount = sqlite3_backup_pagecount(pBackup);
+
+                if (remaining > 0 && pagecount > 0) {
+                    // Completion = 100% * (pagecount() - remaining()) / pagecount()
+                    Local<Value> argv[] = {
+                        Nan::Null(),
+                        Nan::New((int)remaining),
+                        Nan::New((int)pagecount)
+                    };
+
+                    Local<Function> cb = Nan::New(baton->progress);
+
+                    if (!cb.IsEmpty() && cb->IsFunction()) {
+                        TRY_CATCH_CALL(db->handle(), cb, 3, argv);
+                    }
+                }
+
+                if( rc==SQLITE_OK || rc==SQLITE_BUSY || rc==SQLITE_LOCKED ){
+                    sqlite3_sleep(250);
+                }
+            } while( rc==SQLITE_OK || rc==SQLITE_BUSY || rc==SQLITE_LOCKED );
+            (void)sqlite3_backup_finish(pBackup);
+        }
+        rc = sqlite3_errcode(pFile);
+    }
+
+    (void)sqlite3_close(pFile);
+    
+    // 2. 返回参数
+    Local<Value> argv[1];
+    if (baton->status != SQLITE_OK) {
+        EXCEPTION(Nan::New(baton->message.c_str()).ToLocalChecked(), baton->status, exception);
+        argv[0] = exception;
+    } else {
+        argv[0] = Nan::Null();
+    }
+    
+    Local<Function> cb = Nan::New(baton->callback);
+    
+    if (!cb.IsEmpty() && cb->IsFunction()) {
+        TRY_CATCH_CALL(db->handle(), cb, 1, argv);
+    }
+    
     delete baton;
 }
 
